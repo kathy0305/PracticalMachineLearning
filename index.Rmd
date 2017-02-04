@@ -293,7 +293,7 @@ modFitC<- train(classe ~ ., method="rf", trControl=ctrl, data=Training2)
 print(modFitC, digits=3)
 ```
 The accuracy of Random Forest model using 5-fold cross validation is `r round(modFitC$results[2,2]*100)`% using mtry =27.
-Much better Accuracy than the Recursive Partitioning and Regression Trees.
+Much better Accuracy than the Recursive Partitioning and Regression Trees. 
 
 Lets try it again with another set  validation
 ```{r get single tree}
@@ -306,8 +306,10 @@ predictionsC <- predict(modFitC, newdata=Validation3)
 CMrf <-confusionMatrix(predictionsC, Validation3$classe)
 print(CMrf, digits=4)
 ```
-
-The accuracy of Random Forest model using 5-fold cross validation is `r round(CMrf$overall[1]*100)`%
+Out of sample error: The error rate you get on a new dataset (Validation)
+The accuracy of Random Forest model using 5-fold cross validation is `r round(CMrf$overall[1]*100)`% 
+The Out of Sample error rate is `r  (1- CMrf$overall[1]) * 100`%
+That's pretty much around what it was expected.
 
 ###Summary
 it looks like both Boosting with Tress (gbm) and Random Forest(rf) did better that the Recursive Partitioning and Regression Trees, using rpart().
