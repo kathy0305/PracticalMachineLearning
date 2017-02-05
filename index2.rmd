@@ -1,0 +1,323 @@
+---
+title: "Practical Machine Learning Take5"
+author: "Kathy0305"
+date: "February 4, 2017"
+output: html_document
+---
+
+---
+title: "Practical Machine Learning Take 3"
+author: "Kathy0305"
+date: "February 3, 2017"
+output: html_document
+---
+
+
+
+```{r setup, include=TRUE, warning=FALSE, message= FALSE,cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Practical Machine Learning Final Project
+
+## Background
+
+####Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+The data is already divided into two subsets, training and test:
+
+* The training data for this project are available here:[Training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+* The test data for this project are available here:[Test](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+
+##### The Goal of the Project
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing:
+* How you built your model?
+* How you used cross validation?
+* What you think the expected out of sample error is?
+* Why you made the choices you did?
+You will also use your prediction model to predict 20 different test cases.
+
+### Background about the original data
+The reserachers wanted to capture not the quantity (the number of times) of an activity or excercise, but the quality of the activity. Did the participants adhere  to the execution of an activity to its specification ?
+They used three body sensors (Belt, Arm and Glove) to measure whether a certain activity was done right. Participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:
+
+*Exactly according to the specification (Class A)
+*Throwing the elbows to the front (Class B)
+*Lifting the dumbbell only halfway (Class C) 
+*Lowering the dumbbell only halfway(Class D) 
+*Throwing the hips to the front (Class E)
+
+Class A corresponds to the specified execution of the exercise,
+while the other 4 classes correspond to common mistakes.
+The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. 
+
+For more information please read more here @http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf
+
+###Libraries 
+These are the list of R packages needed to run this code
+Assuming all installations are previously done
+
+```{r Libraries , warning=FALSE, message=FALSE}
+library(caret)
+library(randomForest)
+library(tidyverse)
+library(mlbench)
+library(janitor)
+library(AppliedPredictiveModeling)
+library(rattle)
+library(rpart.plot)
+library(knitr);
+
+```
+### Data
+```{r Get Data, warning=FALSE, message=FALSE}
+load("/Users/Kawther/Desktop/DataScientist/Machine Learning/Final Project.RData")
+## Set data URL
+TrainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TestURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+## Download data
+## and make sure it was not downloaded before
+if (!file.exists("pml-training.csv")) {
+  download.file(url = TrainURL, destfile = "pml-training.csv")
+} 
+if (!file.exists("pml-testing.csv")) {
+  download.file(url = TestURL, destfile = "pml-testing.csv")
+} 
+
+## Read the  data
+training <- read.csv("pml-training.csv", na.strings=c("NA",""), header=TRUE)
+testing <- read.csv("pml-testing.csv",na.strings=c("NA",""), header=TRUE)
+
+## Saving the Date the data got downloaded
+dateDownloaded <- date()
+```
+The Data was downloaded on `r dateDownloaded`
+
+
+### Exploratory Analysis
+lets take a look of what the data looks like only in the training set
+ 
+As per Prediction Study Design, the test set will not be used or even looked at. and will only be used one time to apply our predictor , however will use the same techniques to clean the data on both sets.
+
+
+####Clean Data
+```{r clean NA, warning=FALSE, message=FALSE}
+
+## get rid of all columns that have 50% NA values 
+cleantraining <- training[, -which(colMeans(is.na(training)) > 0.5)]
+cleantesting <- testing[,-which(colMeans(is.na(testing)) > 0.5)]
+
+## remove the first 7 columns/variable (not needed data)
+cleantraining <- cleantraining[,8:length(colnames(cleantraining))]
+cleantesting <- cleantesting[,8:length(colnames(cleantesting))]
+
+## make sure both datasets have the same variables
+CleanTrainingCol <- colnames(cleantraining)
+CleanTestingCol <- colnames(cleantesting)
+if (all.equal(CleanTrainingCol[1:length(CleanTrainingCol)-1], CleanTestingCol[1:length(CleanTrainingCol)-1])) { print("The two datasets have the same columns/variable") } else
+    {
+    print("WARNING: the two datasets dont have the same columns/variables")
+}
+
+DimensionCleanTraining <- dim(cleantraining)
+DimensionCleanTesting <- dim (cleantesting)
+
+
+```
+
+The training data set has `r DimensionCleanTraining[1]` rows/obs and `r DimensionCleanTraining[2]` columns/variables.
+
+The testing data set has `r DimensionCleanTesting[1]` rows/obs and `r DimensionCleanTesting[2]` columns/variables.
+
+There are a large number of variables that are not needed for our calculations.
+To reduce the number of variables, we need to only include the ones that have high correlation. Will use the NearZeroVar function to remove variables that dont have high correlations
+
+```{r NearZeroVar, warning=FALSE, message=FALSE}
+nsv <- nearZeroVar(cleantraining, saveMetrics=TRUE)
+
+## count how many True is nzv
+CountTrueNZV <-length(which(nsv=="TRUE"))
+```
+There are `r CountTrueNZV` variables that have little variability and will likely not be good predictors.
+So that did not help much in eliminating any variable.
+
+The Training data is still a large dataset, which gives us the opportunity to cross validate.
+
+Having expiremented with Random Forrest to model this dataset previously, I found that it took more that 2 hours for my laptop to process. So based on StakOverFlow suggestion , I decided to divide my data into 4 datasets and then divide each new dataset into two , a training and a validation set.
+So will split the training set into two subsets: training and validation.
+Now will have three subsets:
+* The training sets will be used to fit the models
+* The validation sets will be used to estimate prediction error for model selection
+*The test set will be  used for assessment of the generalization error of the final chosen model.
+
+```{r splitting data, warning=FALSE, message=FALSE}
+## Split the data in half
+set.seed(01312017)
+FirstSplit <- createDataPartition(y=cleantraining$classe, p=0.5, list=FALSE)
+HalfDataA<- cleantraining[FirstSplit,]
+HalfDataB <- cleantraining[-FirstSplit,]
+dim(HalfDataA); dim(HalfDataB)
+
+## Split the new data set into 2 again
+set.seed(01312017)
+SecondSplitA <- createDataPartition(y=HalfDataA$classe,p=0.5, list = FALSE)
+Training1 <-HalfDataA[SecondSplitA,]
+Training2 <- HalfDataA[-SecondSplitA,]
+dim(Training1); dim(Training2)
+
+
+set.seed(01312017)
+SecondSplitB <- createDataPartition(y=HalfDataB$classe,p=0.5, list = FALSE)
+Training3 <-HalfDataB[SecondSplitB,]
+Training4 <- HalfDataB[-SecondSplitB,]
+dim(Training3);dim(Training4)
+
+## Now lets split the 4 new training datasets into training and validations set
+## 60% Training 40% Validation
+
+set.seed(01312017)
+inTrain1 <- createDataPartition(y= Training1$classe, p=0.6,list=FALSE)
+Training1 <- Training1[inTrain1,]
+Validation1 <- Training1[-inTrain1,]
+
+inTrain2 <- createDataPartition(y= Training2$classe, p=0.6,list=FALSE)
+Training2 <- Training2[inTrain2,]
+Validation2 <- Training2[-inTrain2,]
+
+inTrain3 <- createDataPartition(y= Training3$classe, p=0.6,list=FALSE)
+Training3 <- Training3[inTrain3,]
+Validation3<- Training3[-inTrain3,]
+
+inTrain4 <- createDataPartition(y= Training4$classe, p=0.6,list=FALSE)
+Training4 <- Training4[inTrain4,]
+Validation4 <- Training4[-inTrain4,]
+
+
+```
+
+
+###Will try several modeling techiques:
+
+*  **Recursive Partitioning and Regression Trees, using rpart()**
+
+```{r trainData using rpart, warning=FALSE, message=FALSE}
+set.seed(01312017)
+
+modFitA <- train(classe ~ ., data = Training1, method="rpart")
+print(modFitA, digits=3)
+
+## Visualize the partition using fancyRpartPlot using rattle pkg.
+library(rattle)
+fancyRpartPlot(modFitA$finalModel)
+```
+
+
+* **Cross Validate with default bootstrapping**
+```{r predict modFitA,warning=FALSE, message= FALSE}
+## go with the default trainControl=boot (bootstrapping)
+predictionsA<- predict(modFitA, newdata=Validation1)
+CM<-confusionMatrix(predictionsA, Validation1$classe)
+print(round(CM$overall,digits = 2))
+```
+The Accuracy of this model; Recursive Partitioning and Regression Trees, using rpart() is `r round(CM$overall[1]*100)`%
+Not a good predictor.
+
+Lets try to Standarize this dataset see if we get a better value
+Standardizing variable is to take the variables values and subtract their
+mean and then divide that whole quatity by the standard deviation
+(mean=0, sd=1)
+
+```{r Standarize, warning=FALSE, message= FALSE}
+set.seed(01312017)
+modFitB <- train(classe ~ ., data = Training1, preProcess=c("center", "scale"), method="rpart")
+print(modFitB, digits=3)
+```
+
+```{r PredictmodFitB, warning=FALSE, message= FALSE}
+predictionsB<- predict(modFitB, newdata=Validation1)
+CMB<-confusionMatrix(predictionsB, Validation1$classe)
+print(round(CMB$overall,digits = 2))
+```
+The Accuracy of the prediction with Standardizing process is
+`r round(CMB$overall[1]*100)`% 
+It did not improve much. Still a weak model.
+
+
+* **Stochastic gradient boosting trees (gbm)**
+```{r gbm, warning=FALSE, message= FALSE}
+set.seed(01312017)
+ctrlgbm <- trainControl(method='cv', number=3, returnResamp='none', classProbs = TRUE)
+## metrics use ROC instead of the default RMSE:
+modFitgbm<- train(classe ~ ., data = Training1,
+                  method="gbm",trControl=ctrlgbm, 
+                  metric = "ROC", 
+                  preProc = c("center", "scale"),
+                  verbose=FALSE)
+print(modFitgbm, digits=3)
+summary(modFitgbm)
+```
+```{r predict gbm, warning=FALSE, message= FALSE}
+predictionsgbm<- predict(modFitgbm, newdata=Validation1)
+CMgbm<-confusionMatrix(predictionsgbm, Validation1$classe)
+print(round(CMgbm$overall,digits = 2))
+```
+The Accuracy of Stochastic gradient boosting trees (gbm) predictor is `r round(CMgbm$overall[1]*100)`%
+Very good predictor, but lets try against another validation set, incase we overfit the last one
+```{r predict gbm 2, warning=FALSE, message= FALSE}
+predictionsgbm2<- predict(modFitgbm, newdata=Validation2)
+CMgbm2<-confusionMatrix(predictionsgbm2, Validation2$classe)
+print(round(CMgbm2$overall,digits = 2))
+```
+The Accuracy of Stochastic gradient boosting trees (gbm) predictor is `r round(CMgbm2$overall[1]*100)`%
+Still a high Accuracy and seems to be a good model.
+
+
+ **Random Forest Model**
+ 
+Random Forest is one of the most used and highly accurate model
+highly used by Kaggle competitors.
+So will give it a try.
+Will use a 5-fold cross validation (K-fold cross validation) 
+so that we dont overfit our model.
+
+```{r RandomForest, warning=FALSE, message= FALSE}
+set.seed(01312017)
+## Use a trainControl to have control over the search grid.
+## 5-fold cross validation (K-fold cross validation)
+ctrl <- trainControl("cv", number = 5, verboseIter = FALSE)
+modFitC<- train(classe ~ ., method="rf", trControl=ctrl, data=Training2)
+print(modFitC, digits=3)
+```
+The accuracy of Random Forest model using 5-fold cross validation is `r round(modFitC$results[2,2]*100)`% using mtry =27.
+Much better Accuracy than the Recursive Partitioning and Regression Trees.
+
+Lets try it again with another set  validation
+```{r get single tree}
+head(getTree(modFitC$finalModel, k=27))
+```
+
+
+```{r Confusion Matrix rf, warning=FALSE, message= FALSE}
+predictionsC <- predict(modFitC, newdata=Validation3)
+CMrf <-confusionMatrix(predictionsC, Validation3$classe)
+print(CMrf, digits=4)
+```
+Out of sample error: The error rate you get on a new dataset (Validation) The accuracy of Random Forest model using 5-fold cross validation is
+`r round(CMrf$overall[1]*100)`% The Out of Sample error rate is
+`r (1- CMrf$overall[1]) * 100` % That's pretty much around what it was expected.
+
+###Summary
+it looks like both Boosting with Tress (gbm) and Random Forest(rf) did better that the Recursive Partitioning and Regression Trees, using rpart(). The out of sample error rate is `r  1- CMrf$overall[1]`
+The data was very large and I had to split it in 4 subsets so that my PC can handle the calculations.
+```{r Summary, warning=FALSE, message= FALSE}
+
+AccuracyResults <- data.frame(
+   Model = c('rpart', 'gbm', 'rf'),
+   Accuracy = rbind(CM$overall[1], CMgbm$overall[1], CMrf$overall[1])
+)
+print(AccuracyResults) 
+```
